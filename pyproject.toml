@@ -1,0 +1,12 @@
+[project]
+name = "vision-geometry-playground"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "loguru>=0.7.3",
+    "opencv-python>=4.11.0.86",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
+]
