@@ -120,3 +120,90 @@ def is_overlapped(bbox1, bbox2):
         verticalValid = True
 
     return (horizontalValid and verticalValid)
+
+def find_intersect_obj_indices(gaze_start, gaze_end, objects, bbox, fov_degree=30, conf_thres=0.5, count_thres=1):
+    """Check if any object intersects with the "fov" that starts from "gaze_start" and receives gaze vector as the angle bisector
+
+    Args:
+        - gaze_start: start point of the gaze vector as format (x, y)
+        - gaze_end: "end" point of the gaze vector as format (x, y)
+        - objects: list of objects, each object has format [xmin, ymin, xmax, ymax, conf] (xmin, ymin, xmax, ymax is bounding box, conf is confidence score)
+        - bbox: only use objects which are overlapped with the bounding box bbox [xmin, ymin, xmax, ymax(, conf)]
+        - fov_degree (int, optional): the absolute value of the "fov" in Degree unit. Defaults to 30 (this is a configuration value, and must be >= 0 and < 90)
+        - count_thres (int, optional): the minimum number of corners that lie within "gaze angle" to be considered as "intersect". Default to 1 (this is a configuration value, and must be >= 1 and <= 4)
+        - conf_thres (float, optional): confidence threshold as many false positive "Phone" detection may appear. Default to 0.5 (this is a configuration value, and must be > 0 and < 1)
+    Returns:
+        - fov_p1: the point to represent the first vector of the "fov" as format (x, y)
+        - fov_p2: the point to represent the second vector of the "fov" as format (x, y)
+        - intersect_obj_indices: indices of intersect objects (if any)
+        - outside_obj_indices: indices of object outside of the bbox (if any)
+        - unseen_obj_indices: indices of object inside of the bbox but is not looked at (if any)
+    """    
+    
+    # convert angle to radian unit
+    rad = math.pi * fov_degree / 360
+    
+    #find 2 points represent 2 vectors of the "gaze angle"
+    fov_p1 = get_rotation(gaze_end, gaze_start, rad)
+    fov_p2 = get_rotation(gaze_end, gaze_start, -rad) 
+    
+    fov_a1 = find_angle(gaze_start, fov_p1) 
+    fov_a2 = find_angle(gaze_start, fov_p2)   
+    
+    fov_amin = min(fov_a1, fov_a2)
+    fov_amax = max(fov_a1, fov_a2)
+
+    logger.info("fov_amin: {}".format(fov_amin * 180 / math.pi))
+    logger.info("fov_amax: {}".format(fov_amax * 180 / math.pi))
+
+    intersect_obj_indices = list()
+    outside_obj_indices = list()
+    unseen_obj_indices = list()
+    
+    for idx, obj in enumerate(objects):
+
+        if is_overlapped(obj, bbox) is False:
+            outside_obj_indices.append(idx)
+            continue
+        
+        # make sure object's confidence score satisfies the confidence threshold
+        if obj[4] >= conf_thres:
+            logger.info("object {}".format(idx))
+            count = 0
+        
+            # 4 corners of the object bounding box, in order is top-left, top-right, bottom-left, bottom-right
+            corner_pts = [(obj[0], obj[1]), (obj[0], obj[3]), (obj[2], obj[1]), (obj[2], obj[3])]
+            
+            # the angle from "gaze_start" to each corner
+            corner_angles = list()
+            for corner_pt in corner_pts:
+                corner_angle = find_angle(gaze_start, corner_pt)
+                logger.info("corner: {}".format(corner_angle * 180 / math.pi))
+                corner_angles.append(corner_angle)#find_angle(gaze_start, corner_pt))
+                            
+            # check if the FOV intersects with the top edge (from top-left corner to top-right corner)
+            if is_anglerange_in_fovrange(fov_amin, fov_amax, corner_angles[0], corner_angles[1]):
+                count += 1
+            
+            # check if the FOV intersects with the bottom edge (from bottom-left corner to bottom-right corner)
+            if is_anglerange_in_fovrange(fov_amin, fov_amax, corner_angles[2], corner_angles[3]):
+                count += 1
+            
+            # check if the FOV intersects with the left edge (from top-left corner to bottom-left corner)
+            if is_anglerange_in_fovrange(fov_amin, fov_amax, corner_angles[0], corner_angles[2]):
+                count += 1            
+
+            # check if the FOV intersects with the right edge (from top-right corner to bottom-right corner)
+            if is_anglerange_in_fovrange(fov_amin, fov_amax, corner_angles[1], corner_angles[3]):
+                count += 1   
+            
+            # object's bounding box intersects with the FOV
+            if count >= count_thres:
+                logger.warning("INSIDE!")
+                intersect_obj_indices.append(idx)
+            else:
+                logger.warning("OUTSIDE!")
+                unseen_obj_indices.append(idx)
+    # print("fov angle range:", fov_amin * 180 / math.pi, fov_amax * 180 / math.pi)
+    
+    return fov_p1, fov_p2, intersect_obj_indices, outside_obj_indices, unseen_obj_indices
